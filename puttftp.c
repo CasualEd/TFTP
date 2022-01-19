@@ -10,6 +10,8 @@
 #define BUFSIZE 1024
 #define ADDRSIZE 100
 #define BLOCKLENGTH 512
+#define DATAPACKETLENGTH 520
+#define MAXFILESIZE 10000
 #define ACKSIZE 4
 #define MAXBLOCKINDEX 65535 //2^(16)-1
 
@@ -20,6 +22,7 @@ void printString(char * string){
 	int lgthString=strlen(string); //we retrieve the length of the string to write it on the standard output
 	write(STDOUT_FILENO, string, lgthString);
 }
+
 
 int main(int argc, char **argv){
 	struct addrinfo hints;
@@ -35,10 +38,16 @@ int main(int argc, char **argv){
 	int sendBlockSize = BLOCKLENGTH;
 	int recvBlockSize = BLOCKLENGTH;
 	void * ACKpacket = malloc(ACKSIZE*sizeof(char));
-	void * DATApacket = malloc(BLOCKLENGTH*sizeof(char));
-	char * SbytesR = malloc(BLOCKLENGTH*sizeof(char));
-	
-	
+	void * DATApacket = malloc(DATAPACKETLENGTH*sizeof(char));
+	char * fileBuf = malloc(MAXFILESIZE*sizeof(char));
+	FILE * file;
+	size_t ffresult;
+	int remainingData;
+	file = fopen(argv[2], "rb");
+	fseek(file, 0, SEEK_SET);
+	ffresult = fread(fileBuf, 1, MAXFILESIZE, file);
+	fclose(file);
+	remainingData=(int) ffresult;
 	if(argc != 3){//If there is no the two expected parameters: we stop the program
 		fprintf(stderr, "Usage : %s host file\n", argv[0]);
 		exit(EXIT_FAILURE);
@@ -86,30 +95,42 @@ int main(int argc, char **argv){
 	*((short*) DATApacket) = htons(3);
 	*((short*) DATApacket+1) = htons(0);
 	
-	
-	while((sendBlockSize==BLOCKLENGTH) && (blockIndex < MAXBLOCKINDEX)){
-		sendBlockSize=strnlen(argv[2], BUFSIZE)+2; //arbitraire pour commencer
-		*((short*) ACKpacket+1) = htons(blockIndex); //
+	while((remainingData>0) && (blockIndex < MAXBLOCKINDEX)){
+		//sendDataSize = fread(fileBuf, 1, BLOCKLENGTH, file);
+		if(remainingData<BLOCKLENGTH){
+			
+			strncpy(DATApacket+2, fileBuf, remainingData);
+			sendBlockSize=remainingData+2;
+			
+	}
+		else{
+			strncpy(DATApacket+2, fileBuf, BLOCKLENGTH);
+		}
+		*((short*) ACKpacket+1) = htons(blockIndex);
 		recvBlockSize=recvfrom(sock, recvbuf, BLOCKLENGTH, 0,
 			result->ai_addr,&(result->ai_addrlen));
 		if(recvBlockSize==4){
 			if(*((short*) recvbuf)==htons(4)){
-				printString("It is an ACK packet sending next packet!");
+				printString("It is an ACK packet sending next packet! \n");
 			}else{
-				printString("This is not an ACK packet, exit!");
+				printString("This is not an ACK packet, exit!\n");
 			exit(EXIT_FAILURE);
 			}
 		}else{
-			printString("This is not an ACK packet, exit!");
+			printString("This is not an ACK packet, exit!\n");
 			exit(EXIT_FAILURE);
 		}
-		strncpy(DATApacket+2, argv[2], BUFSIZE);
+		
+	
 		sendto(sock, DATApacket, sendBlockSize, 0,
 			result->ai_addr, result->ai_addrlen); //send the ACK
-		//write(STDOUT_FILENO, fileData, BLOCKLENGTH);
+		
+		if(remainingData>BLOCKLENGTH){
+			
+		fileBuf+=BLOCKLENGTH;
+	}
+		remainingData-=BLOCKLENGTH;
 		blockIndex++;
 	}
-	
 	exit(EXIT_SUCCESS);
 }
-//will be used for puttftp bind(sock, result->ai_addr, result->ai_addrlen);
